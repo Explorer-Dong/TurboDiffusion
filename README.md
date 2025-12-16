@@ -4,7 +4,8 @@
 <img src=assets/TurboDiffusion_Logo.png width="30%"/>
 </div>
 
-This repository provides the official implementation of **TurboDiffusion**, a video generation acceleration framework that can speed up end-to-end diffusion generation by $100 \sim 205\times$ on a single RTX 5090, while maintaining video quality.
+This repository provides the official implementation of **TurboDiffusion**, a video generation acceleration framework that can speed up end-to-end diffusion generation by $100 \sim 205\times$ on a single RTX 5090, while maintaining video quality.   
+TurboDiffusion primarily uses [SageAttention](https://github.com/thu-ml/SageAttention), [SLA (Sparse-Linear Attention)](https://github.com/thu-ml/SLA), and [rCM](https://github.com/NVlabs/rcm).
 
 
 Paper: [TurboDiffusion: Accelerating Video Diffusion Models by 100--205 Times](https://jt-zhang.github.io/files/TurboDiffusion_Technical_Report.pdf)
@@ -558,7 +559,7 @@ The parameter updates from SLA training can be merged into rCM checkpoints using
 
 We're actively working on the following features and improvements:
 
-- [ ] Organize and release training code
+- [x] Organize and release training code
 - [ ] Optimize infrastructure for better parallel
 - [ ] vLLM-Omni integration
 - [ ] Support for more video generation models
@@ -566,7 +567,7 @@ We're actively working on the following features and improvements:
 - [ ] More hardware-level operator optimizations
 
 
-We welcome community members to help maintain and extend TurboDiffusion. We appreciate your interest in contributing. Welcome to join the TurboDiffusion Team and contribute together!
+We welcome community members to help maintain and extend TurboDiffusion. Welcome to join the TurboDiffusion Team and contribute together!
 
 
 ## Citation
