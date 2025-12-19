@@ -25,6 +25,12 @@ try:
 except ImportError:
     SAGESLA_ENABLED = False
 
+SAGE2PP_ENABLED = True
+try:
+    from spas_sage_attn._qattn import qk_int8_sv_f8_accum_f16_block_sparse_attn_inst_buf_fuse_v_scale_with_pv_threshold
+except ImportError:
+    SAGE2PP_ENABLED = False
+
 from .kernel import _attention
 from .utils import get_block_map, get_cuda_arch
 
@@ -216,9 +222,14 @@ class SageSparseLinearAttention(nn.Module):
             )
         else:
             pvthreshold = torch.full((q.shape[-3],), 1e6, dtype=torch.float32, device=q.device)
-            qattn.qk_int8_sv_f8_accum_f16_block_sparse_attn_inst_buf_fuse_v_scale_with_pv_threshold(
-                q_int8, k_int8, v_fp8, o_s, lut, valid_block_num, pvthreshold, q_scale, k_scale, v_scale, 1, False, 1, scale, 0
-            )
+            if SAGE2PP_ENABLED:
+                qk_int8_sv_f8_accum_f16_block_sparse_attn_inst_buf_fuse_v_scale_with_pv_threshold(
+                    q_int8, k_int8, v_fp8, o_s, lut, valid_block_num, pvthreshold, q_scale, k_scale, v_scale, 1, False, 1, scale, 0
+                )
+            else:
+                qattn.qk_int8_sv_f8_accum_f32_block_sparse_attn_inst_buf_fuse_v_scale_with_pv_threshold(
+                    q_int8, k_int8, v_fp8, o_s, lut, valid_block_num, pvthreshold, q_scale, k_scale, v_scale, 1, False, 1, scale, 0
+                )
 
         ########## SPARGE END ##########
 
