@@ -195,7 +195,7 @@ class EveryNDrawSample_SLA(EveryN):
         )
         if hasattr(model, "decode"):
             sample_student = model.decode(sample_student)
-        to_show.append(sample_student.float().cpu())
+        to_show.append(sample_student.cpu())
 
         sample_teacher = model.generate_samples_from_batch(
             data_batch,
@@ -208,12 +208,12 @@ class EveryNDrawSample_SLA(EveryN):
         if hasattr(model, "decode"):
             sample_teacher = model.decode(sample_teacher)
 
-        to_show.append(sample_teacher.float().cpu())
+        to_show.append(sample_teacher.cpu())
 
         MSE = torch.mean((sample_student.float() - sample_teacher.float()) ** 2)
         dist.all_reduce(MSE, op=dist.ReduceOp.AVG)
 
-        to_show.append(raw_data.float().cpu())
+        to_show.append(raw_data.cpu())
 
         base_fp_wo_ext = f"{tag}_ReplicateID{self.data_parallel_id:04d}_Sample_Iter{iteration:09d}"
 

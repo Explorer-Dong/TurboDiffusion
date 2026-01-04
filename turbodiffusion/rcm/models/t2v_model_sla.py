@@ -312,7 +312,7 @@ class T2VModel_SLA(ImaginaireModel):
         multiplier = self.video_noise_multiplier if is_video_batch else 1
         sigma_B_1 = sigma_B_1 * multiplier
         time_B_1 = sigma_B_1 / (sigma_B_1 + 1)
-        return time_B_1.double()
+        return time_B_1
 
     def training_step(self, data_batch: dict[str, torch.Tensor], iteration: int) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
         # Get the input data to noise and denoise~(image, video) and the corresponding conditioner.
@@ -670,12 +670,10 @@ class T2VModel_SLA(ImaginaireModel):
         norm_type: float = 2.0,
         error_if_nonfinite: bool = False,
         foreach: Optional[bool] = None,
+        iteration: int = 0,
     ):
         if not self.grad_clip:
             max_norm = 1e12
-        for param in self.net.parameters():
-            if param.grad is not None:
-                torch.nan_to_num(param.grad, nan=0, posinf=0, neginf=0, out=param.grad)
         return clip_grad_norm_(
             self.net.parameters(),
             max_norm=max_norm,
