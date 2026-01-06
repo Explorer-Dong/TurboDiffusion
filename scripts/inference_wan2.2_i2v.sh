@@ -25,15 +25,14 @@ export PYTHONPATH=turbodiffusion
 
 python turbodiffusion/inference/wan2.2_i2v_infer.py \
     --model Wan2.2-A14B \
-    --low_noise_model_path checkpoints/TurboWan2.2-I2V-A14B-low-720P-quant.pth \
-    --high_noise_model_path checkpoints/TurboWan2.2-I2V-A14B-high-720P-quant.pth \
+    --low_noise_model_path checkpoints/TurboWan2.2-I2V-A14B-low-720P.pth \
+    --high_noise_model_path checkpoints/TurboWan2.2-I2V-A14B-high-720P.pth \
     --resolution 720p \
     --adaptive_resolution \
     --image_path assets/i2v_inputs/i2v_input_0.jpg \
-    --prompt "POV selfie video, ultra-messy and extremely fast. A white cat in sunglasses stands on a surfboard with a neutral look when the board suddenly whips sideways, throwing cat and camera into the water; the frame dives sharply downward, swallowed by violent bursts of bubbles, spinning turbulence, and smeared water streaks as the camera sinks. Shadows thicken, pressure ripples distort the edges, and loose bubbles rush upward past the lens, showing the camera is still sinking. Then the cat kicks upward with explosive speed, dragging the view through churning bubbles and rapidly brightening water as sunlight floods back in; the camera races upward, water streaming off the lens, and finally breaks the surface in a sudden blast of light and spray, snapping back into a crooked, frantic selfie as the cat resurfaces." \
+    --prompt "The cat in the photo has taken off its glasses." \
     --num_samples 1 \
     --num_steps 4 \
-    --quant_linear \
     --attention_type sagesla \
-    --sla_topk 0.1 \
+    --sla_topk 0.15 \
     --ode

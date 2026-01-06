@@ -15,6 +15,8 @@
 
 import argparse
 import math
+import time
+import uuid
 
 import torch
 from einops import rearrange, repeat
@@ -54,7 +56,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--adaptive_resolution", action="store_true", help="If set, adapts the output resolution to the input image's aspect ratio, using the area defined by --resolution and --aspect_ratio as a target.")
     parser.add_argument("--ode", action="store_true", help="Use ODE for sampling (sharper but less robust than SDE)")
     parser.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility")
-    parser.add_argument("--save_path", type=str, default="output/generated_video.mp4", help="Path to save the generated video (include file extension)")
+    parser.add_argument("--save_path", type=str, default=f"output/{time.strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}.mp4", help="Path to save the generated video (include file extension)")
     parser.add_argument("--attention_type", choices=["sla", "sagesla", "original"], default="sagesla", help="Type of attention mechanism to use")
     parser.add_argument("--sla_topk", type=float, default=0.1, help="Top-k ratio for SLA/SageSLA attention")
     parser.add_argument("--quant_linear", action="store_true", help="Whether to replace Linear layers with quantized versions")
@@ -82,21 +84,36 @@ if __name__ == "__main__":
         log.error("--image_path is required (unless using --serve mode)")
         exit(1)
 
+    # ==============================
+    # Load Models
+    # ==============================
+
+    # Load T5 and encode prompt
     log.info(f"Computing embedding for prompt: {args.prompt}")
     with torch.no_grad():
         text_emb = get_umt5_embedding(checkpoint_path=args.text_encoder_path, prompts=args.prompt).to(**tensor_kwargs)
     clear_umt5_memory()
+    # log.info(f"Text emb shape: {text_emb.shape}")  # [1, 512, 4096]
 
-    log.info(f"Loading DiT models.")
+    # Load DiT
+    log.info("Loading DiT")
     high_noise_model = create_model(dit_path=args.high_noise_model_path, args=args).cpu()
     torch.cuda.empty_cache()
     low_noise_model = create_model(dit_path=args.low_noise_model_path, args=args).cpu()
     torch.cuda.empty_cache()
-    log.success(f"Successfully loaded DiT model.")
+    # log.info("Successfully loaded DiT model.")
 
+    # Load VAE
+    log.info("Loading VAE")
     tokenizer = Wan2pt1VAEInterface(vae_pth=args.vae_path)
+    # log.info("Successfully loaded VAE model.")
 
-    log.info(f"Loading and preprocessing image from: {args.image_path}")
+    # ==============================
+    # Process image
+    # ==============================
+
+    # Load image and setup image size
+    log.info("Loading image")
     input_image = Image.open(args.image_path).convert("RGB")
     if args.adaptive_resolution:
         log.info("Adaptive resolution mode enabled.")
@@ -126,6 +143,7 @@ if __name__ == "__main__":
     lat_w = w // tokenizer.spatial_compression_factor
     lat_t = tokenizer.get_latent_num_frames(F)
 
+    # Transformer image
     log.info(f"Preprocessing image to {w}x{h}...")
     image_transforms = T.Compose(
         [
@@ -136,32 +154,38 @@ if __name__ == "__main__":
         ]
     )
     image_tensor = image_transforms(input_image).unsqueeze(0).to(device=tensor_kwargs["device"], dtype=torch.float32)
+    # log.info(f"image: {image_tensor.shape}")  # [1, 3, h, w]
 
+    # Encode image
     with torch.no_grad():
         frames_to_encode = torch.cat(
             [image_tensor.unsqueeze(2), torch.zeros(1, 3, F - 1, h, w, device=image_tensor.device)], dim=2
         )  # -> B, C, T, H, W
+        # log.warning(f"Original frames: {frames_to_encode.shape}")  # [1, 3, 81, h, w]
         encoded_latents = tokenizer.encode(frames_to_encode)  # -> B, C_lat, T_lat, H_lat, W_lat
+        # log.warning(f"Encoded frames: {encoded_latents.shape}")  # [1, 16, 21, 138, 104]
         
         del frames_to_encode
         torch.cuda.empty_cache()
 
+    # Construct mask
     msk = torch.zeros(1, 4, lat_t, lat_h, lat_w, device=tensor_kwargs["device"], dtype=tensor_kwargs["dtype"])
+    # log.warning(f"msk: {msk.shape}")  # [1, 4, 21, 138, 104]
     msk[:, :, 0, :, :] = 1.0
 
+    # Image with mask
     y = torch.cat([msk, encoded_latents.to(**tensor_kwargs)], dim=1)
+    # log.warning(y.shape)  # [1, 20, 21, 138, 104]
     y = y.repeat(args.num_samples, 1, 1, 1, 1)
+    # log.warning(y.shape)  # [args.num_samples, 20, 21, 138, 104]
 
-    log.info(f"Generating with prompt: {args.prompt}")
-    condition = {"crossattn_emb": repeat(text_emb.to(**tensor_kwargs), "b l d -> (k b) l d", k=args.num_samples), "y_B_C_T_H_W": y}
-
-    to_show = []
+    # ==============================
+    # Process timestep
+    # ==============================
 
     state_shape = [tokenizer.latent_ch, lat_t, lat_h, lat_w]
-
     generator = torch.Generator(device=tensor_kwargs["device"])
     generator.manual_seed(args.seed)
-
     init_noise = torch.randn(
         args.num_samples,
         *state_shape,
@@ -175,12 +199,18 @@ if __name__ == "__main__":
     t_steps = torch.tensor(
         [math.atan(args.sigma_max), *mid_t, 0],
         dtype=torch.float64,
-        device=init_noise.device,
+        device=tensor_kwargs["device"],
     )
 
     # Convert TrigFlow timesteps to RectifiedFlow
     t_steps = torch.sin(t_steps) / (torch.cos(t_steps) + torch.sin(t_steps))
 
+    # ==============================
+    # Start Inference
+    # ==============================
+
+    log.info(f"Generating with prompt: {args.prompt}")
+    condition = {"crossattn_emb": repeat(text_emb.to(**tensor_kwargs), "b l d -> (k b) l d", k=args.num_samples), "y_B_C_T_H_W": y}
     x = init_noise.to(torch.float64) * t_steps[0]
     ones = torch.ones(x.size(0), 1, device=x.device, dtype=x.dtype)
     total_steps = t_steps.shape[0] - 1
@@ -194,7 +224,7 @@ if __name__ == "__main__":
             low_noise_model.cuda()
             net = low_noise_model
             switched = True
-            log.info("Switched to low noise model.")
+            # log.info("Switched to low noise model.")
         with torch.no_grad():
             v_pred = net(x_B_C_T_H_W=x.to(**tensor_kwargs), timesteps_B_T=(t_cur.float() * ones * 1000).to(**tensor_kwargs), **condition).to(
                 torch.float64
@@ -212,11 +242,11 @@ if __name__ == "__main__":
     low_noise_model.cpu()
     torch.cuda.empty_cache()
 
+    # ==============================
+    # Decode and save
+    # ==============================
+
     with torch.no_grad():
         video = tokenizer.decode(samples)
-
-    to_show.append(video.float().cpu())
-
-    to_show = (1.0 + torch.stack(to_show, dim=0).clamp(-1, 1)) / 2.0
-
+    to_show = (1.0 + torch.stack([video.float().cpu()], dim=0).clamp(-1, 1)) / 2.0
     save_image_or_video(rearrange(to_show, "n b c t h w -> c t (n h) (b w)"), args.save_path, fps=16)
